@@ -15,9 +15,8 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/franzwilhelm/gitflow-release-notes/githubutil"
+	"github.com/franzwilhelm/gitflow-release-notes/release"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -32,25 +31,23 @@ var changelogCmd = &cobra.Command{
 	Use:   "changelog",
 	Short: "A brief description of your command",
 	Run: func(cmd *cobra.Command, args []string) {
+		if fromTag == "" {
+			fromTag = toTag
+		}
 		githubutil.Initialize(httpClient, repo, owner)
-		releases, err := githubutil.GetReleasesBetweenTags(fromTag, toTag)
+		releases, err := release.GenerateReleasesBetweenTags(fromTag, toTag)
 		if err != nil {
-			logrus.WithError(err).Fatalf("Could not fetch pull requests")
+			logrus.WithError(err).Fatalf("Could not generate releases")
 		}
 		for _, release := range releases {
-			fmt.Println("")
-			fmt.Println(release.TagEdge.Node.Name)
-			for _, pr := range release.PullRequests {
-				fmt.Println(pr.GetNumber(), pr.GetTitle())
-			}
+			release.GenerateMarkdown()
 		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(changelogCmd)
-	changelogCmd.Flags().StringVarP(&fromTag, "from-tag", "f", "", "Tag to check from")
-	changelogCmd.Flags().StringVarP(&toTag, "to-tag", "t", "", "Tag to check to")
-	changelogCmd.MarkFlagRequired("from-tag")
-	changelogCmd.MarkFlagRequired("to-tag")
+	changelogCmd.Flags().StringVarP(&fromTag, "from-tag", "f", "", "If specified, changelogs are generated from all releases between this tag, and the other tag specified.")
+	changelogCmd.Flags().StringVarP(&toTag, "tag", "t", "", "Tag to generate changelog for")
+	changelogCmd.MarkFlagRequired("tag")
 }

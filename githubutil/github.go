@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/go-github/github"
-	version "github.com/hashicorp/go-version"
 	"github.com/shurcooL/githubv4"
 	"github.com/sirupsen/logrus"
 )
@@ -21,12 +20,6 @@ var (
 	owner            string
 	repo             string
 )
-
-type Release struct {
-	TagEdge      TagEdge
-	Commits      []github.RepositoryCommit
-	PullRequests []github.PullRequest
-}
 
 type TagEdge struct {
 	Node struct {
@@ -153,71 +146,4 @@ func ListTags() ([]TagEdge, error) {
 		edges[i].Node.Target.Sha = urlSplit[len(urlSplit)-1]
 	}
 	return edges, err
-}
-
-func GetReleasesBetweenTags(base, head string) ([]Release, error) {
-	// Fetch the latest 100 tags and pull requests
-	tags, err := ListTags()
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch tags: %v", err)
-	}
-	prMap, err := GetPullRequests()
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch pull requests: %v", err)
-	}
-
-	for i, tag := range tags {
-		if tag.Node.Name == base {
-			base = tags[i+1].Node.Name
-			break
-		}
-	}
-	baseVersion, err := version.NewVersion(base)
-	if err != nil {
-		return nil, err
-	}
-	headVersion, err := version.NewVersion(head)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fetch all commits between the two tags we're interested in
-	commits, err := CompareCommits(base, head)
-	if err != nil {
-		return nil, fmt.Errorf("could not get commits between tag '%s' and '%s': %v", base, head, err)
-	}
-
-	var releases []Release
-	commitIndex := 0
-	for i := len(tags) - 1; i > 0; i-- {
-		tagEdge := tags[i]
-		release := Release{
-			TagEdge: tagEdge,
-		}
-		version, err := version.NewVersion(tagEdge.Node.Name)
-		if err != nil {
-			continue
-		}
-		if version.LessThan(baseVersion) || version.Equal(baseVersion) || version.GreaterThan(headVersion) {
-			continue
-		}
-		found := false
-		for ; commitIndex < len(commits); commitIndex++ {
-			commit := commits[commitIndex]
-			release.Commits = append(release.Commits, commit)
-			if pr, ok := prMap[commit.GetSHA()]; ok {
-				release.PullRequests = append(release.PullRequests, *pr)
-			}
-			if commit.GetSHA() == tagEdge.Node.Target.Sha {
-				found = true
-				commitIndex++
-				break
-			}
-		}
-		if !found {
-			logrus.Fatalf("Could not find the commit for tag %v. Is the original tag commit deleted?", tagEdge.Node)
-		}
-		releases = append(releases, release)
-	}
-	return releases, nil
 }
