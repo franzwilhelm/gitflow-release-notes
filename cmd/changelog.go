@@ -24,7 +24,7 @@ import (
 
 var (
 	fromTag string
-	toTag string
+	toTag   string
 )
 
 // changelogCmd represents the changelog command
@@ -32,12 +32,18 @@ var changelogCmd = &cobra.Command{
 	Use:   "changelog",
 	Short: "A brief description of your command",
 	Run: func(cmd *cobra.Command, args []string) {
-		githubutil.Initialize(client, repo, owner)
-		prs, err := githubutil.GetPrsBetweenTags(fromTag, toTag)
+		githubutil.Initialize(httpClient, repo, owner)
+		releases, err := githubutil.GetReleasesBetweenTags(fromTag, toTag)
 		if err != nil {
 			logrus.WithError(err).Fatalf("Could not fetch pull requests")
 		}
-		fmt.Println(prs)
+		for _, release := range releases {
+			fmt.Println("")
+			fmt.Println(release.TagEdge.Node.Name)
+			for _, pr := range release.PullRequests {
+				fmt.Println(pr.GetNumber(), pr.GetTitle())
+			}
+		}
 	},
 }
 

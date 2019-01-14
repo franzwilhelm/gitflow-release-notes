@@ -17,9 +17,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 
-	"github.com/google/go-github/github"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -28,11 +28,11 @@ import (
 )
 
 var (
-	cfgFile string
-	owner   string
-	repo    string
-	ctx     context.Context
-	client  *github.Client
+	cfgFile    string
+	owner      string
+	repo       string
+	ctx        context.Context
+	httpClient *http.Client
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -62,14 +62,12 @@ func init() {
 
 	if accessToken == "" {
 		logrus.Warn("GITHUB_ACCESS_TOKEN not set, using Github Client without auth")
-		client = github.NewClient(nil)
 	} else {
 		ctx = context.Background()
 		ts := oauth2.StaticTokenSource(
 			&oauth2.Token{AccessToken: accessToken},
 		)
-		tc := oauth2.NewClient(ctx, ts)
-		client = github.NewClient(tc)
+		httpClient = oauth2.NewClient(ctx, ts)
 	}
 }
 
