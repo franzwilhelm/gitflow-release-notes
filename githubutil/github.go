@@ -25,7 +25,7 @@ var (
 type Release struct {
 	TagEdge      TagEdge
 	Commits      []github.RepositoryCommit
-	PullRequests []github.Issue
+	PullRequests []github.PullRequest
 }
 
 type TagEdge struct {
@@ -101,10 +101,36 @@ func GetPullRequestsBetween(start, end time.Time) (map[string]github.Issue, erro
 	return prMap, nil
 }
 
-func GetCommitsBetweenTags(base, head string) ([]github.RepositoryCommit, error) {
+func GetPullRequests() (map[string]*github.PullRequest, error) {
+	logrus.Infof("Fetching latest 100 pull requests")
+	prs, _, err := client.PullRequests.List(ctx, owner, repo, &github.PullRequestListOptions{
+		State:     "closed",
+		Head:      "develop",
+		Sort:      "created",
+		Direction: "desc",
+		ListOptions: github.ListOptions{
+			PerPage: 100, // Maximum limit
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	prMap := make(map[string]*github.PullRequest)
+
+	for _, pr := range prs {
+		prMap[pr.GetMergeCommitSHA()] = pr
+	}
+	logrus.Warnf("Only prs between %v and %v will be added to changelogs", prs[len(prs)-1].GetNumber(), prs[0].GetNumber())
+	return prMap, nil
+}
+
+func CompareCommits(base, head string) ([]github.RepositoryCommit, error) {
 	logrus.Infof("Fetching all commits between %s and %s", base, head)
 	comparision, _, err := client.Repositories.CompareCommits(ctx, owner, repo, base, head)
-	return comparision.Commits, err
+	if err != nil {
+		return nil, err
+	}
+	return comparision.Commits, nil
 }
 
 func ListTags() ([]TagEdge, error) {
@@ -130,6 +156,22 @@ func ListTags() ([]TagEdge, error) {
 }
 
 func GetReleasesBetweenTags(base, head string) ([]Release, error) {
+	// Fetch the latest 100 tags and pull requests
+	tags, err := ListTags()
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch tags: %v", err)
+	}
+	prMap, err := GetPullRequests()
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch pull requests: %v", err)
+	}
+
+	for i, tag := range tags {
+		if tag.Node.Name == base {
+			base = tags[i+1].Node.Name
+			break
+		}
+	}
 	baseVersion, err := version.NewVersion(base)
 	if err != nil {
 		return nil, err
@@ -139,30 +181,10 @@ func GetReleasesBetweenTags(base, head string) ([]Release, error) {
 		return nil, err
 	}
 
-	// Fetch the latest 100 tags
-	tags, err := ListTags()
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch tags: %v", err)
-	}
-
 	// Fetch all commits between the two tags we're interested in
-	commits, err := GetCommitsBetweenTags(base, head)
+	commits, err := CompareCommits(base, head)
 	if err != nil {
 		return nil, fmt.Errorf("could not get commits between tag '%s' and '%s': %v", base, head, err)
-	}
-
-	start := commits[0].
-		GetCommit().
-		GetCommitter().
-		GetDate()
-	end := commits[len(commits)-1].
-		GetCommit().
-		GetCommitter().
-		GetDate()
-
-	prMap, err := GetPullRequestsBetween(start, end)
-	if err != nil {
-		return nil, fmt.Errorf("could not fetch pull requests: %v", err)
 	}
 
 	var releases []Release
@@ -179,13 +201,12 @@ func GetReleasesBetweenTags(base, head string) ([]Release, error) {
 		if version.LessThan(baseVersion) || version.Equal(baseVersion) || version.GreaterThan(headVersion) {
 			continue
 		}
-
 		found := false
 		for ; commitIndex < len(commits); commitIndex++ {
 			commit := commits[commitIndex]
 			release.Commits = append(release.Commits, commit)
 			if pr, ok := prMap[commit.GetSHA()]; ok {
-				release.PullRequests = append(release.PullRequests, pr)
+				release.PullRequests = append(release.PullRequests, *pr)
 			}
 			if commit.GetSHA() == tagEdge.Node.Target.Sha {
 				found = true
