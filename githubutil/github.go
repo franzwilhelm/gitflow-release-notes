@@ -10,25 +10,34 @@ import (
 	"github.com/google/go-github/github"
 	"github.com/shurcooL/githubv4"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 )
 
 var (
+	Repo             Repository
 	githubDateFormat = "2006-01-02"
 	ctx              = context.Background()
 	client           *github.Client
 	clientv4         *githubv4.Client
-	owner            string
-	repo             string
 )
 
 // Initialize initializes the github and githubv4 clients
 // If a Github authorized httpClient is passed as an argument, the github
 // clients will be able to fetch data from private resources
-func Initialize(httpClient *http.Client, repository, repositoryOwner string) {
+func Initialize(accessToken string, r Repository) {
+	var httpClient *http.Client
+	if accessToken == "" {
+		logrus.Warn("GITHUB_ACCESS_TOKEN not set, using Github Client without auth")
+	} else {
+		ts := oauth2.StaticTokenSource(
+			&oauth2.Token{AccessToken: accessToken},
+		)
+		httpClient = oauth2.NewClient(ctx, ts)
+	}
+
 	client = github.NewClient(httpClient)
 	clientv4 = githubv4.NewClient(httpClient)
-	repo = repository
-	owner = repositoryOwner
+	Repo = r
 }
 
 // GetPullRequestIssuesBetween fetches all pull request issues between two timestamps,
@@ -38,7 +47,7 @@ func GetPullRequestIssuesBetween(start, end time.Time) (map[string]github.Issue,
 	endFormatted := end.Format(githubDateFormat)
 	logrus.Infof("Fetching all pull requests between %s and %s. This may take a while...", startFormatted, endFormatted)
 	query := searchQuery(map[string]interface{}{
-		"repo":   fmt.Sprintf("%s/%s", owner, repo),
+		"repo":   fmt.Sprintf("%s/%s", Repo.Owner, Repo.Name),
 		"type":   "pr",
 		"merged": fmt.Sprintf("%s..%s", startFormatted, endFormatted),
 	})
@@ -76,7 +85,7 @@ func GetPullRequestIssuesBetween(start, end time.Time) (map[string]github.Issue,
 // GetPullRequests fetches the 100 most recent pull requests
 func GetPullRequests() (map[string]*github.PullRequest, error) {
 	logrus.Infof("Fetching latest 100 pull requests")
-	prs, _, err := client.PullRequests.List(ctx, owner, repo, &github.PullRequestListOptions{
+	prs, _, err := client.PullRequests.List(ctx, Repo.Owner, Repo.Name, &github.PullRequestListOptions{
 		State:     "closed",
 		Head:      "develop",
 		Sort:      "created",
@@ -137,7 +146,7 @@ func GetTags() ([]Tag, error) {
 // CompareCommits returns all commits between two github tags or hashes
 func CompareCommits(base, head string) ([]github.RepositoryCommit, error) {
 	logrus.Infof("Fetching all commits between %s and %s", base, head)
-	comparision, _, err := client.Repositories.CompareCommits(ctx, owner, repo, base, head)
+	comparision, _, err := client.Repositories.CompareCommits(ctx, Repo.Owner, Repo.Name, base, head)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +155,7 @@ func CompareCommits(base, head string) ([]github.RepositoryCommit, error) {
 
 // CreateRelease creates a release in Github
 func CreateRelease(tagName, body string) error {
-	_, _, err := client.Repositories.CreateRelease(ctx, owner, repo, &github.RepositoryRelease{
+	_, _, err := client.Repositories.CreateRelease(ctx, Repo.Owner, Repo.Name, &github.RepositoryRelease{
 		TagName: &tagName,
 		Name:    &tagName,
 		Body:    &body,
@@ -156,13 +165,13 @@ func CreateRelease(tagName, body string) error {
 
 // GetRelease fetches a release in Github by tag
 func GetRelease(tag string) (*github.RepositoryRelease, error) {
-	release, _, err := client.Repositories.GetReleaseByTag(ctx, owner, repo, tag)
+	release, _, err := client.Repositories.GetReleaseByTag(ctx, Repo.Owner, Repo.Name, tag)
 	return release, err
 }
 
 // DeleteRelease deletes a release in Github
 func DeleteRelease(id int64) error {
-	_, err := client.Repositories.DeleteRelease(ctx, owner, repo, id)
+	_, err := client.Repositories.DeleteRelease(ctx, Repo.Owner, Repo.Name, id)
 	return err
 }
 
@@ -177,7 +186,7 @@ func graphqlQuery(query map[string]interface{}) map[string]interface{} {
 	if query == nil {
 		query = make(map[string]interface{})
 	}
-	query["owner"] = githubv4.String(owner)
-	query["repo"] = githubv4.String(repo)
+	query["owner"] = githubv4.String(Repo.Owner)
+	query["repo"] = githubv4.String(Repo.Name)
 	return query
 }

@@ -32,6 +32,17 @@ go install $GOPATH/src/github.com/franzwilhelm/gitflow-release-notes
 
 To use the tool and get available commands, simply run `gitflow-release-notes -h`.
 
+#### Example
+This example generates changelog for release v1.2.3 and pushes is to Github, and to a slack channel.
+```shell
+gitflow-release-notes changelog v1.2.3 \
+  --repository franzwilhelm/gitflow-release-notes \
+  --push \ # Push to Github
+  --slack-channel $slack_channel \
+  --slack-icon $slack_icon \
+  --slack-webhook $slack_webhook_url
+```
+
 #### Private repositories
 For use in private repositories, make sure to [generate a personal access token on Github](https://github.com/settings/tokens). For the tool to work correctly, it needs the following permissions:
 * `repo` - _Full control of private repositories_
@@ -49,7 +60,7 @@ Then export it as an environment variable `GITHUB_ACCESS_TOKEN`, before running 
 - [x] Automatic grouping of changelogs by branch name (`feature`/`bugfix`/`hotfix`/`other`)
 - [x] Write beautiful changelogs for a single or multiple tags to disk
 - [x] Push or overwrite release notes directly to Github
-- [ ] Push structured release notes to a Slack channel
+- [x] Push structured release notes to a Slack channel
 - [ ] Possible to use a config file instead of flags
 - [ ] Possible to customize markdown formatting
 - [ ] Use commit messages as backup when no PRs are found for a release

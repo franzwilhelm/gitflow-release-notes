@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/franzwilhelm/gitflow-release-notes/githubutil"
+	"github.com/franzwilhelm/gitflow-release-notes/slack"
 	"github.com/google/go-github/github"
 	version "github.com/hashicorp/go-version"
 	"github.com/sirupsen/logrus"
@@ -16,6 +17,7 @@ import (
 // two tags. The tag of the release is the one to create release notes for
 type Release struct {
 	Tag          githubutil.Tag
+	Repository   githubutil.Repository
 	Commits      []github.RepositoryCommit
 	PullRequests []github.PullRequest
 }
@@ -32,14 +34,18 @@ func (r *Release) TagName() string {
 	return r.Tag.Name
 }
 
-// GenerateMarkdownChangelog writes a markdown changelog file to the provided writer
-func (r *Release) GenerateMarkdownChangelog(w io.Writer) error {
-	var (
-		feature []github.PullRequest
-		bugfix  []github.PullRequest
-		hotfix  []github.PullRequest
-		other   []github.PullRequest
-	)
+// GithubURL returns the Github URL for the release
+func (r *Release) GithubURL() string {
+	return fmt.Sprintf("https://www.github.com/%s/releases/tag/%s", r.Repository.Full(), r.TagName())
+}
+
+// GetPullRequestSections returns the different pull request groups of a release
+func (r *Release) GetPullRequestSections() (
+	feature []github.PullRequest,
+	bugfix []github.PullRequest,
+	hotfix []github.PullRequest,
+	other []github.PullRequest,
+) {
 
 	for _, pr := range r.PullRequests {
 		branchName := pr.Head.GetRef()
@@ -57,6 +63,12 @@ func (r *Release) GenerateMarkdownChangelog(w io.Writer) error {
 			other = append(other, pr)
 		}
 	}
+	return
+}
+
+// GenerateMarkdownChangelog writes a markdown changelog file to the provided writer
+func (r *Release) GenerateMarkdownChangelog(w io.Writer) error {
+	feature, bugfix, hotfix, other := r.GetPullRequestSections()
 
 	if err := writeMarkdownSection(w, "Features", feature); err != nil {
 		return err
@@ -111,6 +123,33 @@ func (r *Release) PushToGithub(overwrite bool) error {
 	return nil
 }
 
+// PushToSlack pushes release notes to the slack channel specified
+func (r *Release) PushToSlack(channel, iconURL string) error {
+	feature, bugfix, hotfix, other := r.GetPullRequestSections()
+
+	var attachments []slack.Attachment
+	addSlackAttachment(&attachments, "Features", "#315cfd", feature)
+	addSlackAttachment(&attachments, "Bug fixes", "#d80f5c", bugfix)
+	addSlackAttachment(&attachments, "Hotfixes", "#d80f5c", hotfix)
+	addSlackAttachment(&attachments, "", "#2a284f", other)
+
+	return slack.PostWebhook(&slack.WebhookMessage{
+		Channel:     channel,
+		IconURL:     iconURL,
+		Username:    "Release Notes",
+		Text:        fmt.Sprintf("New release: <%s|%s@%s> :tada:", r.GithubURL(), r.Repository.Name, r.TagName()),
+		Attachments: attachments,
+	})
+}
+
+func addSlackAttachment(attachments *[]slack.Attachment, title, color string, prs []github.PullRequest) {
+	if prs != nil {
+		attachment := slack.Attachment{Title: title, Color: color}
+		attachment.UsePullRequests(prs)
+		*attachments = append(*attachments, attachment)
+	}
+}
+
 // GenerateReleasesBetweenTags generates a release array containing all releases
 // between two tags. For instance sending in v1.10.0 and v1.10.4 will generate
 // a release array containing v1.10.0, v1.10.1, v1.10.2, v1.10.3 and v1.10.4
@@ -151,7 +190,8 @@ func GenerateReleasesBetweenTags(base, head string) ([]Release, error) {
 	for i := len(tags) - 1; i >= 0; i-- {
 		tagEdge := tags[i]
 		release := Release{
-			Tag: tagEdge,
+			Tag:        tagEdge,
+			Repository: githubutil.Repo,
 		}
 		version, err := version.NewVersion(tagEdge.Name)
 		if err != nil {

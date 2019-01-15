@@ -16,62 +16,29 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/franzwilhelm/gitflow-release-notes/githubutil"
 	homedir "github.com/mitchellh/go-homedir"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"golang.org/x/oauth2"
 )
 
 var (
 	cfgFile    string
-	repo       GithubRepository
+	repo       githubutil.Repository
 	ctx        context.Context
 	httpClient *http.Client
 )
-
-// GithubRepository holds the owner and name of a Github repository
-type GithubRepository struct {
-	Owner string
-	Name  string
-}
-
-// String is part of the Value interface for cobra custom flags
-func (r *GithubRepository) String() string {
-	return ""
-}
-
-// Set is part of the Value interface for cobra custom flags
-func (r *GithubRepository) Set(input string) error {
-	gitRefs := strings.Split(input, "/")
-	if len(gitRefs) != 2 {
-		return errors.New("Invalid repository format. Example: franzwilhelm/gitflow-release-notes")
-	}
-	r.Owner = gitRefs[0]
-	r.Name = gitRefs[1]
-	return nil
-}
-
-// Type is part of the Value interface for cobra custom flags
-func (r *GithubRepository) Type() string {
-	return ""
-}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "gitflow-release-notes",
 	Short: "Automatically generate release notes based on pull requests",
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-
-		githubutil.Initialize(httpClient, repo.Name, repo.Owner)
-		return nil
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		githubutil.Initialize(os.Getenv("GITHUB_ACCESS_TOKEN"), repo)
 	},
 }
 
@@ -88,17 +55,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gitflow-release-notes.yaml)")
 	rootCmd.PersistentFlags().VarP(&repo, "repository", "r", "Github repository ref with owner. Example: franzwilhelm/gitflow-release-notes")
 	rootCmd.MarkPersistentFlagRequired("repository")
-	accessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
-
-	if accessToken == "" {
-		logrus.Warn("GITHUB_ACCESS_TOKEN not set, using Github Client without auth")
-	} else {
-		ctx = context.Background()
-		ts := oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: accessToken},
-		)
-		httpClient = oauth2.NewClient(ctx, ts)
-	}
 }
 
 // initConfig reads in config file and ENV variables if set.
