@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
+	"github.com/franzwilhelm/gitflow-release-notes/githubutil"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -30,6 +32,7 @@ import (
 var (
 	cfgFile    string
 	owner      string
+	repoRef    string
 	repo       string
 	ctx        context.Context
 	httpClient *http.Client
@@ -38,7 +41,16 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "gitflow-release-notes",
-	Short: "A brief description of your application",
+	Short: "Automatically generate release notes based on pull requests",
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		gitRefs := strings.Split(repoRef, "/")
+		if len(gitRefs) != 2 {
+			logrus.Fatal("Invalid repository format. Example: franzwilhelm/gitflow-release-notes")
+		}
+		owner = gitRefs[0]
+		repo = gitRefs[1]
+		githubutil.Initialize(httpClient, repo, owner)
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -53,11 +65,8 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gitflow-release-notes.yaml)")
-	rootCmd.PersistentFlags().StringVarP(&owner, "owner", "o", "", "Github owner")
-	rootCmd.PersistentFlags().StringVarP(&repo, "repository", "r", "", "Github repository")
-	rootCmd.MarkPersistentFlagRequired("owner")
+	rootCmd.PersistentFlags().StringVarP(&repoRef, "repository", "r", "", "Github repository ref with owner. Example: franzwilhelm/gitflow-release-notes")
 	rootCmd.MarkPersistentFlagRequired("repository")
-
 	accessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
 
 	if accessToken == "" {

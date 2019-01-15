@@ -15,39 +15,71 @@
 package cmd
 
 import (
-	"github.com/franzwilhelm/gitflow-release-notes/githubutil"
+	"os"
+	"strings"
+
 	"github.com/franzwilhelm/gitflow-release-notes/release"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 var (
-	fromTag string
-	toTag   string
+	base      string
+	head      string
+	overwrite bool
+	push      bool
 )
 
 // changelogCmd represents the changelog command
 var changelogCmd = &cobra.Command{
-	Use:   "changelog",
-	Short: "A brief description of your command",
+	Use:   "changelog [base-tag..head-tag]",
+	Short: "Generates changelogs for the specified tag or tag range",
+	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if fromTag == "" {
-			fromTag = toTag
+		versionSpec := args[0]
+		tags := strings.Split(versionSpec, "..")
+		base := tags[0]
+
+		repoOwnerLog := logrus.WithFields(logrus.Fields{
+			"repo":  repo,
+			"owner": owner,
+		})
+		if len(tags) == 2 {
+			head = tags[1]
+			repoOwnerLog.Infof("Generating changelog for tags between %s and %s", base, head)
+		} else if len(tags) == 1 {
+			head = tags[0]
+			repoOwnerLog.Infof("Generating changelog for %s", base)
+		} else {
+			logrus.Fatal("Bad input argument format")
 		}
-		githubutil.Initialize(httpClient, repo, owner)
-		releases, err := release.GenerateReleasesBetweenTags(fromTag, toTag)
+
+		releases, err := release.GenerateReleasesBetweenTags(base, head)
 		if err != nil {
 			logrus.WithError(err).Fatalf("Could not generate releases")
 		}
 		for _, release := range releases {
-			release.GenerateMarkdown()
+			if push {
+				if err := release.PushToGithub(overwrite); err != nil {
+					logrus.WithError(err).Fatal("Could not push release to Github")
+				}
+			} else {
+				filename := release.Filename("md")
+				f, err := os.Create(filename)
+				if err != nil {
+					logrus.WithError(err).Error("Could not create file for changelog")
+				}
+				defer f.Close()
+				release.GenerateMarkdownChangelog(f)
+				logrus.Infof("Wrote changelog to %s", filename)
+			}
 		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(changelogCmd)
-	changelogCmd.Flags().StringVarP(&fromTag, "from-tag", "f", "", "If specified, changelogs are generated from all releases between this tag, and the other tag specified.")
-	changelogCmd.Flags().StringVarP(&toTag, "tag", "t", "", "Tag to generate changelog for")
+	changelogCmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite existing tags in Github if necessary")
+	changelogCmd.Flags().BoolVar(&push, "push", false, "Push changelog to github instead of saving it locally")
 	changelogCmd.MarkFlagRequired("tag")
 }

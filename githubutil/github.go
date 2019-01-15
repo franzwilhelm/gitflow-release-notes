@@ -21,16 +21,9 @@ var (
 	repo             string
 )
 
-type TagEdge struct {
-	Node struct {
-		Name   string
-		Target struct {
-			Sha       string `graphql:"oid"`
-			CommitURL string
-		}
-	}
-}
-
+// Initialize initializes the github and githubv4 clients
+// If a Github authorized httpClient is passed as an argument, the github
+// clients will be able to fetch data from private resources
 func Initialize(httpClient *http.Client, repository, repositoryOwner string) {
 	client = github.NewClient(httpClient)
 	clientv4 = githubv4.NewClient(httpClient)
@@ -38,27 +31,13 @@ func Initialize(httpClient *http.Client, repository, repositoryOwner string) {
 	owner = repositoryOwner
 }
 
-func SearchQuery(searchMap map[string]interface{}) (query string) {
-	for key, value := range searchMap {
-		query += fmt.Sprintf(" %s:%v", key, value)
-	}
-	return query
-}
-
-func GraphqlQuery(query map[string]interface{}) map[string]interface{} {
-	if query == nil {
-		query = make(map[string]interface{})
-	}
-	query["owner"] = githubv4.String(owner)
-	query["repo"] = githubv4.String(repo)
-	return query
-}
-
-func GetPullRequestsBetween(start, end time.Time) (map[string]github.Issue, error) {
+// GetPullRequestIssuesBetween fetches all pull request issues between two timestamps,
+// using the Github Search api. Returns a map of the merge commit SHAs and the issues.
+func GetPullRequestIssuesBetween(start, end time.Time) (map[string]github.Issue, error) {
 	startFormatted := start.Format(githubDateFormat)
 	endFormatted := end.Format(githubDateFormat)
 	logrus.Infof("Fetching all pull requests between %s and %s. This may take a while...", startFormatted, endFormatted)
-	query := SearchQuery(map[string]interface{}{
+	query := searchQuery(map[string]interface{}{
 		"repo":   fmt.Sprintf("%s/%s", owner, repo),
 		"type":   "pr",
 		"merged": fmt.Sprintf("%s..%s", startFormatted, endFormatted),
@@ -80,7 +59,7 @@ func GetPullRequestsBetween(start, end time.Time) (map[string]github.Issue, erro
 			} `graphql:"repository(owner: $owner, name: $repo)"`
 		}
 
-		query := GraphqlQuery(map[string]interface{}{
+		query := graphqlQuery(map[string]interface{}{
 			"number": githubv4.Int(issue.GetNumber()),
 		})
 		err = clientv4.Query(ctx, &graphqlResult, query)
@@ -94,6 +73,7 @@ func GetPullRequestsBetween(start, end time.Time) (map[string]github.Issue, erro
 	return prMap, nil
 }
 
+// GetPullRequests fetches the 100 most recent pull requests
 func GetPullRequests() (map[string]*github.PullRequest, error) {
 	logrus.Infof("Fetching latest 100 pull requests")
 	prs, _, err := client.PullRequests.List(ctx, owner, repo, &github.PullRequestListOptions{
@@ -117,6 +97,44 @@ func GetPullRequests() (map[string]*github.PullRequest, error) {
 	return prMap, nil
 }
 
+// Tag holds data about a git tag and it's target commit sha / url
+type Tag struct {
+	Name   string
+	Target struct {
+		Sha       string `graphql:"oid"`
+		CommitURL string
+	}
+}
+
+// GetTags fetches the 100 most recent tags
+func GetTags() ([]Tag, error) {
+	logrus.Info("Fetching the latest 100 tags")
+	var graphqlResult struct {
+		Repository struct {
+			Tags struct {
+				Edges []struct {
+					Node Tag
+				}
+			} `graphql:"refs(refPrefix: \"refs/tags/\", first: 100, direction: DESC)"`
+		} `graphql:"repository(owner: $owner, name: $repo)"`
+	}
+	err := clientv4.Query(ctx, &graphqlResult, graphqlQuery(nil))
+	if err != nil {
+		return nil, err
+	}
+	edges := graphqlResult.Repository.Tags.Edges
+	logrus.Warnf("Only tags between %s and %s will generate changelogs", edges[len(edges)-1].Node.Name, edges[0].Node.Name)
+
+	var tags []Tag
+	for _, edge := range edges {
+		urlSplit := strings.Split(edge.Node.Target.CommitURL, "/")
+		edge.Node.Target.Sha = urlSplit[len(urlSplit)-1]
+		tags = append(tags, edge.Node)
+	}
+	return tags, err
+}
+
+// CompareCommits returns all commits between two github tags or hashes
 func CompareCommits(base, head string) ([]github.RepositoryCommit, error) {
 	logrus.Infof("Fetching all commits between %s and %s", base, head)
 	comparision, _, err := client.Repositories.CompareCommits(ctx, owner, repo, base, head)
@@ -126,24 +144,40 @@ func CompareCommits(base, head string) ([]github.RepositoryCommit, error) {
 	return comparision.Commits, nil
 }
 
-func ListTags() ([]TagEdge, error) {
-	logrus.Info("Fetching the latest 100 tags")
-	var graphqlResult struct {
-		Repository struct {
-			Tags struct {
-				Edges []TagEdge
-			} `graphql:"refs(refPrefix: \"refs/tags/\", first: 100, direction: DESC)"`
-		} `graphql:"repository(owner: $owner, name: $repo)"`
+// CreateRelease creates a release in Github
+func CreateRelease(tagName, body string) error {
+	_, _, err := client.Repositories.CreateRelease(ctx, owner, repo, &github.RepositoryRelease{
+		TagName: &tagName,
+		Name:    &tagName,
+		Body:    &body,
+	})
+	return err
+}
+
+// GetRelease fetches a release in Github by tag
+func GetRelease(tag string) (*github.RepositoryRelease, error) {
+	release, _, err := client.Repositories.GetReleaseByTag(ctx, owner, repo, tag)
+	return release, err
+}
+
+// DeleteRelease deletes a release in Github
+func DeleteRelease(id int64) error {
+	_, err := client.Repositories.DeleteRelease(ctx, owner, repo, id)
+	return err
+}
+
+func searchQuery(searchMap map[string]interface{}) (query string) {
+	for key, value := range searchMap {
+		query += fmt.Sprintf(" %s:%v", key, value)
 	}
-	err := clientv4.Query(ctx, &graphqlResult, GraphqlQuery(nil))
-	if err != nil {
-		return nil, err
+	return query
+}
+
+func graphqlQuery(query map[string]interface{}) map[string]interface{} {
+	if query == nil {
+		query = make(map[string]interface{})
 	}
-	edges := graphqlResult.Repository.Tags.Edges
-	logrus.Warnf("Only tags between %s and %s will generate changelogs", edges[len(edges)-1].Node.Name, edges[0].Node.Name)
-	for i := range edges {
-		urlSplit := strings.Split(edges[i].Node.Target.CommitURL, "/")
-		edges[i].Node.Target.Sha = urlSplit[len(urlSplit)-1]
-	}
-	return edges, err
+	query["owner"] = githubv4.String(owner)
+	query["repo"] = githubv4.String(repo)
+	return query
 }
