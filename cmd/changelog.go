@@ -24,10 +24,11 @@ import (
 )
 
 var (
-	base      string
-	head      string
-	overwrite bool
-	push      bool
+	base         string
+	head         string
+	overwrite    bool
+	push         bool
+	slackChannel string
 )
 
 // changelogCmd represents the changelog command
@@ -41,8 +42,8 @@ var changelogCmd = &cobra.Command{
 		base := tags[0]
 
 		repoOwnerLog := logrus.WithFields(logrus.Fields{
-			"repo":  repo,
-			"owner": owner,
+			"repo":  repo.Name,
+			"owner": repo.Owner,
 		})
 		if len(tags) == 2 {
 			head = tags[1]
@@ -81,5 +82,6 @@ func init() {
 	rootCmd.AddCommand(changelogCmd)
 	changelogCmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite existing tags in Github if necessary")
 	changelogCmd.Flags().BoolVar(&push, "push", false, "Push changelog to github instead of saving it locally")
+	changelogCmd.Flags().StringVar(&slackChannel, "slack-channel", "", "Post release notes to a slack channel")
 	changelogCmd.MarkFlagRequired("tag")
 }

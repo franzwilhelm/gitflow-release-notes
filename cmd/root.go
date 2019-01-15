@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -31,25 +32,46 @@ import (
 
 var (
 	cfgFile    string
-	owner      string
-	repoRef    string
-	repo       string
+	repo       GithubRepository
 	ctx        context.Context
 	httpClient *http.Client
 )
+
+// GithubRepository holds the owner and name of a Github repository
+type GithubRepository struct {
+	Owner string
+	Name  string
+}
+
+// String is part of the Value interface for cobra custom flags
+func (r *GithubRepository) String() string {
+	return ""
+}
+
+// Set is part of the Value interface for cobra custom flags
+func (r *GithubRepository) Set(input string) error {
+	gitRefs := strings.Split(input, "/")
+	if len(gitRefs) != 2 {
+		return errors.New("Invalid repository format. Example: franzwilhelm/gitflow-release-notes")
+	}
+	r.Owner = gitRefs[0]
+	r.Name = gitRefs[1]
+	return nil
+}
+
+// Type is part of the Value interface for cobra custom flags
+func (r *GithubRepository) Type() string {
+	return ""
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "gitflow-release-notes",
 	Short: "Automatically generate release notes based on pull requests",
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		gitRefs := strings.Split(repoRef, "/")
-		if len(gitRefs) != 2 {
-			logrus.Fatal("Invalid repository format. Example: franzwilhelm/gitflow-release-notes")
-		}
-		owner = gitRefs[0]
-		repo = gitRefs[1]
-		githubutil.Initialize(httpClient, repo, owner)
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+
+		githubutil.Initialize(httpClient, repo.Name, repo.Owner)
+		return nil
 	},
 }
 
@@ -57,7 +79,6 @@ var rootCmd = &cobra.Command{
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
 		os.Exit(1)
 	}
 }
@@ -65,7 +86,7 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gitflow-release-notes.yaml)")
-	rootCmd.PersistentFlags().StringVarP(&repoRef, "repository", "r", "", "Github repository ref with owner. Example: franzwilhelm/gitflow-release-notes")
+	rootCmd.PersistentFlags().VarP(&repo, "repository", "r", "Github repository ref with owner. Example: franzwilhelm/gitflow-release-notes")
 	rootCmd.MarkPersistentFlagRequired("repository")
 	accessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
 
