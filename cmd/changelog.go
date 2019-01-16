@@ -29,8 +29,6 @@ import (
 )
 
 var (
-	base            string
-	head            string
 	overwrite       bool
 	pushToGithub    bool
 	saveMarkdown    bool
@@ -84,9 +82,9 @@ var changelogCmd = &cobra.Command{
 			"owner": repo.Owner,
 		})
 		if baseVersion.Equal(headVersion) {
-			repoOwnerLog.Infof("Generating changelog for %s", base)
+			repoOwnerLog.Infof("Generating changelog for %s", tagPrefix+baseVersion.String())
 		} else {
-			repoOwnerLog.Infof("Generating changelog for tags between %s and %s", base, head)
+			repoOwnerLog.Infof("Generating changelog for tags between %s and %s", tagPrefix+baseVersion.String(), tagPrefix+headVersion.String())
 		}
 
 		releases, err := release.GenerateReleasesBetweenTags(baseVersion, headVersion, tagPrefix)
