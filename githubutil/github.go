@@ -3,17 +3,18 @@ package githubutil
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/go-github/github"
+	version "github.com/hashicorp/go-version"
 	"github.com/shurcooL/githubv4"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 )
 
 var (
+	// Repo is the repository used for fetching of data with the Github clients
 	Repo             Repository
 	githubDateFormat = "2006-01-02"
 	ctx              = context.Background()
@@ -25,16 +26,10 @@ var (
 // If a Github authorized httpClient is passed as an argument, the github
 // clients will be able to fetch data from private resources
 func Initialize(accessToken string, r Repository) {
-	var httpClient *http.Client
-	if accessToken == "" {
-		logrus.Warn("GITHUB_ACCESS_TOKEN not set, using Github Client without auth")
-	} else {
-		ts := oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: accessToken},
-		)
-		httpClient = oauth2.NewClient(ctx, ts)
-	}
-
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: accessToken},
+	)
+	httpClient := oauth2.NewClient(ctx, ts)
 	client = github.NewClient(httpClient)
 	clientv4 = githubv4.NewClient(httpClient)
 	Repo = r
@@ -106,13 +101,24 @@ func GetPullRequests() (map[string]*github.PullRequest, error) {
 	return prMap, nil
 }
 
-// Tag holds data about a git tag and it's target commit sha / url
-type Tag struct {
+type graphqlTag struct {
 	Name   string
 	Target struct {
 		Sha       string `graphql:"oid"`
 		CommitURL string
 	}
+}
+
+// Tag holds data about a git tag and it's target commit sha / url
+type Tag struct {
+	Data    graphqlTag
+	Version *version.Version
+}
+
+// IsBetween checks if the tag version is part of the release range.
+// This between is inclusive on the head version: base < t.Version <= head
+func (t *Tag) IsBetween(base, head *version.Version) bool {
+	return base.LessThan(t.Version) && (head.GreaterThan(t.Version) || head.Equal(t.Version))
 }
 
 // GetTags fetches the 100 most recent tags
@@ -122,7 +128,7 @@ func GetTags() ([]Tag, error) {
 		Repository struct {
 			Tags struct {
 				Edges []struct {
-					Node Tag
+					Node graphqlTag
 				}
 			} `graphql:"refs(refPrefix: \"refs/tags/\", first: 100, direction: DESC)"`
 		} `graphql:"repository(owner: $owner, name: $repo)"`
@@ -138,7 +144,11 @@ func GetTags() ([]Tag, error) {
 	for _, edge := range edges {
 		urlSplit := strings.Split(edge.Node.Target.CommitURL, "/")
 		edge.Node.Target.Sha = urlSplit[len(urlSplit)-1]
-		tags = append(tags, edge.Node)
+		tag := Tag{Data: edge.Node}
+		if tag.Version, err = version.NewVersion(edge.Node.Name); err != nil {
+			return nil, fmt.Errorf("tag %s could not be semver validated", tag.Data.Name)
+		}
+		tags = append(tags, tag)
 	}
 	return tags, err
 }
@@ -146,11 +156,11 @@ func GetTags() ([]Tag, error) {
 // CompareCommits returns all commits between two github tags or hashes
 func CompareCommits(base, head string) ([]github.RepositoryCommit, error) {
 	logrus.Infof("Fetching all commits between %s and %s", base, head)
-	comparision, _, err := client.Repositories.CompareCommits(ctx, Repo.Owner, Repo.Name, base, head)
+	comparison, _, err := client.Repositories.CompareCommits(ctx, Repo.Owner, Repo.Name, base, head)
 	if err != nil {
 		return nil, err
 	}
-	return comparision.Commits, nil
+	return comparison.Commits, nil
 }
 
 // CreateRelease creates a release in Github

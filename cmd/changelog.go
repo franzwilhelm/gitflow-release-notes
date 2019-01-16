@@ -23,6 +23,7 @@ import (
 
 	"github.com/franzwilhelm/gitflow-release-notes/release"
 	"github.com/franzwilhelm/gitflow-release-notes/slack"
+	version "github.com/hashicorp/go-version"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -38,6 +39,27 @@ var (
 	slackIconURL    string
 )
 
+func parseTagInput(input string) (baseVersion, headVersion *version.Version, versionPrefix string, err error) {
+	tags := strings.Split(input, "..")
+	baseVersion, err = version.NewVersion(tags[0])
+	if err != nil {
+		return nil, nil, "", err
+	}
+	switch len(tags) {
+	case 1:
+		headVersion = baseVersion
+	case 2:
+		headVersion, err = version.NewVersion(tags[1])
+		if err != nil {
+			return nil, nil, "", err
+		}
+	default:
+		return nil, nil, "", errors.New("input argument should only contain one double dot (..)")
+	}
+
+	return baseVersion, headVersion, strings.Replace(tags[0], baseVersion.String(), "", 1), nil
+}
+
 // changelogCmd represents the changelog command
 var changelogCmd = &cobra.Command{
 	Use:   "changelog [base-tag..head-tag]",
@@ -52,26 +74,22 @@ var changelogCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		versionSpec := args[0]
-		tags := strings.Split(versionSpec, "..")
-		base := tags[0]
+		baseVersion, headVersion, tagPrefix, err := parseTagInput(args[0])
+		if err != nil {
+			logrus.WithError(err).Fatal("Could not parse tag input")
+		}
 
 		repoOwnerLog := logrus.WithFields(logrus.Fields{
 			"repo":  repo.Name,
 			"owner": repo.Owner,
 		})
-
-		if len(tags) == 2 {
-			head = tags[1]
-			repoOwnerLog.Infof("Generating changelog for tags between %s and %s", base, head)
-		} else if len(tags) == 1 {
-			head = tags[0]
+		if baseVersion.Equal(headVersion) {
 			repoOwnerLog.Infof("Generating changelog for %s", base)
 		} else {
-			logrus.Fatal("Bad input argument format")
+			repoOwnerLog.Infof("Generating changelog for tags between %s and %s", base, head)
 		}
 
-		releases, err := release.GenerateReleasesBetweenTags(base, head)
+		releases, err := release.GenerateReleasesBetweenTags(baseVersion, headVersion, tagPrefix)
 		if err != nil {
 			logrus.WithError(err).Fatalf("Could not generate releases")
 		}

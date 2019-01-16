@@ -1,6 +1,9 @@
 # gitflow-release-notes
 
-Automatically generate release notes based on pull requests.
+[![godoc](https://img.shields.io/badge/godoc-reference-orange.svg?style=flat-square)](https://godoc.org/github.com/franzwilhelm/gitflow-release-notes)
+[![Go Report Card](https://goreportcard.com/badge/github.com/franzwilhelm/gitflow-release-notes)](https://goreportcard.com/report/github.com/franzwilhelm/gitflow-release-notes)
+
+Automatically generate release notes based on pull requests, and push them to Github or Slack.
 
 ## Background
 
@@ -23,12 +26,23 @@ GitFlow is a way of structuring pull requests and branches, that intends to simp
 #### Branches based from `master`
 * `hotfix/[name]` - Branches with this prefix are urgent to get to the stable environment to fix bugs (merge to `develop` and `master`)
 
-## Installation & Usage
+## Installation
 
 ```
 go get -u franzwilhelm/gitflow-release-notes
 go install $GOPATH/src/github.com/franzwilhelm/gitflow-release-notes
 ```
+
+## Usage
+In order to authenticate with the Github API, make sure to [generate a personal access token on Github](https://github.com/settings/tokens). For the tool to work correctly, it needs the following permissions:
+* `repo` - _Full control of private repositories_
+* `repo:status` - _Access commit status_
+* `repo_deployment` - _Access deployment status_
+* `public_repo` - _Access public repositories_
+* `repo:invite` - _Access repository invitations_
+* `read:gpg_key` - _Read user gpg keys_
+
+Then export it as an environment variable `GITHUB_ACCESS_TOKEN`, before running the tool.
 
 To use the tool and get available commands, simply run `gitflow-release-notes -h`.
 
@@ -42,17 +56,6 @@ gitflow-release-notes changelog v1.2.3 \
   --slack-icon $slack_icon \
   --slack-webhook $slack_webhook_url
 ```
-
-#### Private repositories
-For use in private repositories, make sure to [generate a personal access token on Github](https://github.com/settings/tokens). For the tool to work correctly, it needs the following permissions:
-* `repo` - _Full control of private repositories_
-* `repo:status` - _Access commit status_
-* `repo_deployment` - _Access deployment status_
-* `public_repo` - _Access public repositories_
-* `repo:invite` - _Access repository invitations_
-* `read:gpg_key` - _Read user gpg keys_
-
-Then export it as an environment variable `GITHUB_ACCESS_TOKEN`, before running the tool.
 
 ## Features
 

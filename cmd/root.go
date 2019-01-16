@@ -22,6 +22,7 @@ import (
 
 	"github.com/franzwilhelm/gitflow-release-notes/githubutil"
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -38,7 +39,11 @@ var rootCmd = &cobra.Command{
 	Use:   "gitflow-release-notes",
 	Short: "Automatically generate release notes based on pull requests",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		githubutil.Initialize(os.Getenv("GITHUB_ACCESS_TOKEN"), repo)
+		accessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
+		if accessToken == "" {
+			logrus.Fatal("GITHUB_ACCESS_TOKEN empty, or not set")
+		}
+		githubutil.Initialize(accessToken, repo)
 	},
 }
 

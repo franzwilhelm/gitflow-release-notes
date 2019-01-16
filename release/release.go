@@ -31,7 +31,7 @@ func (r *Release) Filename(fileExt string) string {
 
 // TagName returns the git tag for a release
 func (r *Release) TagName() string {
-	return r.Tag.Name
+	return r.Tag.Data.Name
 }
 
 // GithubURL returns the Github URL for the release
@@ -79,10 +79,7 @@ func (r *Release) GenerateMarkdownChangelog(w io.Writer) error {
 	if err := writeMarkdownSection(w, "Hotfixes", hotfix); err != nil {
 		return err
 	}
-	if err := writeMarkdownSection(w, "Other", other); err != nil {
-		return err
-	}
-	return nil
+	return writeMarkdownSection(w, "Other", other)
 }
 
 func writeMarkdownSection(w io.Writer, title string, prs []github.PullRequest) error {
@@ -153,7 +150,7 @@ func addSlackAttachment(attachments *[]slack.Attachment, title, color string, pr
 // GenerateReleasesBetweenTags generates a release array containing all releases
 // between two tags. For instance sending in v1.10.0 and v1.10.4 will generate
 // a release array containing v1.10.0, v1.10.1, v1.10.2, v1.10.3 and v1.10.4
-func GenerateReleasesBetweenTags(base, head string) ([]Release, error) {
+func GenerateReleasesBetweenTags(baseVersion, headVersion *version.Version, tagPrefix string) ([]Release, error) {
 	// Fetch the latest 100 tags and pull requests
 	tags, err := githubutil.GetTags()
 	if err != nil {
@@ -164,57 +161,47 @@ func GenerateReleasesBetweenTags(base, head string) ([]Release, error) {
 		return nil, fmt.Errorf("could not fetch pull requests: %v", err)
 	}
 
+	// Find the tag before the base version and use it as the new base
 	for i, tag := range tags {
-		if tag.Name == base {
-			base = tags[i+1].Name
+		if tag.Version.Equal(baseVersion) {
+			baseVersion = tags[i+1].Version
 			break
 		}
 	}
-	baseVersion, err := version.NewVersion(base)
-	if err != nil {
-		return nil, err
-	}
-	headVersion, err := version.NewVersion(head)
-	if err != nil {
-		return nil, err
-	}
+	baseTag := tagPrefix + baseVersion.String()
+	headTag := tagPrefix + headVersion.String()
 
 	// Fetch all commits between the two tags we're interested in
-	commits, err := githubutil.CompareCommits(base, head)
+	commits, err := githubutil.CompareCommits(baseTag, headTag)
 	if err != nil {
-		return nil, fmt.Errorf("could not get commits between tag '%s' and '%s': %v", base, head, err)
+		return nil, fmt.Errorf("could not get commits between tag '%s' and '%s': %v", baseTag, headTag, err)
 	}
 
 	var releases []Release
-	commitIndex := 0
+	j := 0
 	for i := len(tags) - 1; i >= 0; i-- {
-		tagEdge := tags[i]
 		release := Release{
-			Tag:        tagEdge,
+			Tag:        tags[i],
 			Repository: githubutil.Repo,
 		}
-		version, err := version.NewVersion(tagEdge.Name)
-		if err != nil {
-			continue
-		}
-		if version.LessThan(baseVersion) || version.Equal(baseVersion) || version.GreaterThan(headVersion) {
+		if !tags[i].IsBetween(baseVersion, headVersion) {
 			continue
 		}
 		found := false
-		for ; commitIndex < len(commits); commitIndex++ {
-			commit := commits[commitIndex]
+		for ; j < len(commits); j++ {
+			commit := commits[j]
 			release.Commits = append(release.Commits, commit)
 			if pr, ok := prMap[commit.GetSHA()]; ok {
 				release.PullRequests = append(release.PullRequests, *pr)
 			}
-			if commit.GetSHA() == tagEdge.Target.Sha {
+			if commit.GetSHA() == tags[i].Data.Target.Sha {
 				found = true
-				commitIndex++
+				j++
 				break
 			}
 		}
 		if !found {
-			logrus.Fatalf("Could not find the commit for tag %v. Is the original tag commit deleted?", tagEdge)
+			return nil, fmt.Errorf("Could not find the commit for tag %v. Is the original tag commit deleted?", tags[i])
 		}
 		releases = append(releases, release)
 	}
