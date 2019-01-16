@@ -94,6 +94,7 @@ var changelogCmd = &cobra.Command{
 			logrus.WithError(err).Fatalf("Could not generate releases")
 		}
 
+		pushToSlack := slackWebhookURL != "" && slackChannel != ""
 		for _, release := range releases {
 			log := logrus.WithField("release", release.TagName())
 			if pushToGithub {
@@ -101,7 +102,7 @@ var changelogCmd = &cobra.Command{
 					log.WithError(err).Error("Could not push release to Github")
 				}
 			}
-			if slackWebhookURL != "" && slackChannel != "" {
+			if pushToSlack {
 				log.Info("Pusing release to slack")
 				if err := release.PushToSlack(slackChannel, slackIconURL); err != nil {
 					log.WithError(err).Error("Could not push release to slack")
@@ -119,7 +120,7 @@ var changelogCmd = &cobra.Command{
 						log.Infof("Wrote changelog to %s", filename)
 					}
 				}
-			} else if !pushToGithub && slackWebhookURL == "" && slackChannel == "" {
+			} else if !pushToGithub && !pushToSlack {
 				buf := new(bytes.Buffer)
 				if err := release.GenerateMarkdownChangelog(buf); err != nil {
 					log.WithError(err).Error("Could not generate markdown changelog")

@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/franzwilhelm/gitflow-release-notes/gitflow"
 	"github.com/franzwilhelm/gitflow-release-notes/githubutil"
 	"github.com/franzwilhelm/gitflow-release-notes/slack"
 	"github.com/google/go-github/github"
@@ -51,13 +52,13 @@ func (r *Release) GetPullRequestSections() (
 		branchName := pr.Head.GetRef()
 		prefix := strings.Split(branchName, "/")[0]
 		switch prefix {
-		case "feature":
+		case gitflow.Feature:
 			feature = append(feature, pr)
-		case "bugfix":
+		case gitflow.Bugfix:
 			bugfix = append(bugfix, pr)
-		case "hotfix":
+		case gitflow.Hotfix:
 			hotfix = append(hotfix, pr)
-		case "release":
+		case gitflow.Release:
 			// skip
 		default:
 			other = append(other, pr)
@@ -90,7 +91,11 @@ func writeMarkdownSection(w io.Writer, title string, prs []github.PullRequest) e
 		return err
 	}
 	for _, pr := range prs {
-		if _, err := fmt.Fprintf(w, "#### [#%v](%s): %s\n%s\n\n", pr.GetNumber(), pr.GetHTMLURL(), pr.GetTitle(), pr.GetBody()); err != nil {
+		if _, err := fmt.Fprintf(w, "#### [#%v](%s): %s\n%s\n\n",
+			pr.GetNumber(),
+			pr.GetHTMLURL(),
+			gitflow.RemovePrefixes(pr.GetTitle()),
+			pr.GetBody()); err != nil {
 			return err
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/franzwilhelm/gitflow-release-notes/gitflow"
 	"github.com/google/go-github/github"
 	slackify "github.com/karriereat/blackfriday-slack"
 )
@@ -40,7 +41,7 @@ type Attachment struct {
 func (a *Attachment) UsePullRequests(prs []github.PullRequest) {
 	a.Text += "──────\n"
 	for _, pr := range prs {
-		title := fmt.Sprintf("<%s|#%v>: _*%s*_", pr.GetHTMLURL(), pr.GetNumber(), pr.GetTitle())
+		title := fmt.Sprintf("<%s|#%v>: _*%s*_", pr.GetHTMLURL(), pr.GetNumber(), gitflow.RemovePrefixes(pr.GetTitle()))
 		a.Text += fmt.Sprintf("%s\n", title)
 		if pr.GetBody() != "" {
 			body := string(slackify.Run([]byte(pr.GetBody())))
